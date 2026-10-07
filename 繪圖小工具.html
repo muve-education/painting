@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>眼動著色小遊戲</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#fdf6ec;--ink:#2b2b2b;--card:#fff}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;user-select:none;-webkit-user-select:none}
+.screen{display:none;height:100vh;height:100dvh;padding:2vmin;flex-direction:column;gap:3vmin}
+.screen.on{display:flex}
+/* 眼動＋滑鼠並用的頁面：隱藏系統游標，改用大圓圈 */
+h1{margin:0;text-align:center;font-size:clamp(22px,4.2vmin,44px)}
+.row{flex:1;display:flex;gap:3vmin;min-height:0}
+.dw{position:relative;border:6px solid var(--ink);border-radius:28px;background:var(--card);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1vmin;font-weight:700;font-size:clamp(22px,4vmin,44px);overflow:hidden;color:var(--ink);font-family:inherit;cursor:pointer;padding:1vmin;text-align:center}
+.dw::after{content:"";position:absolute;left:0;right:0;bottom:0;height:calc(var(--p,0)*1%);background:rgba(0,0,0,.2);pointer-events:none}
+.tile{flex:1}
+.tile svg{width:70%;height:70%;max-height:55vh}
+.bar{display:flex;gap:3vmin;height:16vh}
+.bar .dw{flex:1;flex-direction:row;font-size:clamp(20px,3.6vmin,40px)}
+.dw.active{background:#ffe9a8}
+.dw:hover{outline:6px solid #ffb300;outline-offset:-6px}
+#msg{text-align:center;min-height:1.4em;font-size:clamp(16px,2.6vmin,28px)}
+#sw{display:flex;justify-content:center;gap:1.2vmin;align-items:center;font-size:clamp(16px,2.6vmin,28px)}
+#sw i{width:4vmin;height:4vmin;border-radius:50%;border:3px solid var(--ink);display:inline-block}
+#grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:3vmin;min-height:0}
+.col{color:#fff;text-shadow:0 2px 4px rgba(0,0,0,.55);font-size:clamp(28px,6vmin,64px)}
+.col.off{opacity:.3}
+.col .ck{font-size:clamp(24px,5vmin,56px)}
+.all{background:#fff}
+.go{background:#2b2b2b;color:#fff}
+#s3{flex-direction:row}
+#stage{flex:1;min-width:0;border:6px solid var(--ink);border-radius:28px;background:#fff;overflow:hidden}
+#cv{width:100%;height:100%;display:block}
+#tools{width:22vw;display:flex;flex-direction:column;gap:2vmin}
+#tools .dw{flex:1;font-size:clamp(16px,2.8vmin,32px)}
+@media (max-aspect-ratio:1/1){#s3{flex-direction:column}#tools{width:auto;height:18vh;flex-direction:row}}
+#s5 h1{font-size:clamp(20px,3.6vmin,38px)}
+.bt svg{width:80%;height:38%}.bt{flex:1}
+.dot{background:#2b2b2b;border-radius:50%;display:block}
+#err{display:none;position:fixed;left:0;right:0;top:0;z-index:100;background:#b00020;color:#fff;padding:8px 12px;font-size:14px;user-select:text;-webkit-user-select:text}
+</style>
+</head>
+<body>
+
+<div id="err"></div>
+
+<!-- 主畫面：著色（搭配 EyePlayer：游標移到著色區即上色，按鈕以 EyePlayer 點擊） -->
+<div id="s3" class="screen on">
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <div id="tools">
+    <div class="dw" data-act="to1">🖼️ 換圖案</div>
+    <div class="dw" data-act="to2">🎨 換顏色</div>
+    <div class="dw" data-act="to5">🖌️ 換畫筆</div>
+    <div class="dw" data-act="clear">🧽 清除</div>
+  </div>
+</div>
+
+<!-- 選圖案 -->
+<div id="s1" class="screen">
+  <h1>選擇圖案</h1>
+  <div class="row" id="shapes"></div>
+  <div class="bar"><div class="dw" data-act="back">← 返回畫畫</div></div>
+</div>
+
+<!-- 選顏色，每頁 4 格 -->
+<div id="s2" class="screen">
+  <h1>選顏色（可多選）</h1>
+  <div id="sw"></div>
+  <div id="grid"></div>
+  <div class="bar">
+    <div class="dw" data-act="page" id="pg">換頁 ⇄</div>
+    <div class="dw go" data-act="back">完成 ✔</div>
+  </div>
+</div>
+
+<!-- 畫筆 -->
+<div id="s5" class="screen">
+  <h1>畫筆種類</h1>
+  <div class="row" id="brushes"></div>
+  <h1>畫筆大小</h1>
+  <div class="row" id="sizes"></div>
+  <div class="bar"><div class="dw go" data-act="back">完成 ✔</div></div>
+</div>
+
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+window.addEventListener("error",e=>{const b=$("err");if(b){b.style.display="block";b.textContent="程式錯誤："+e.message+"（第 "+e.lineno+" 行）"}});
+
+const COLORS=[["紅","#ff3b30"],["橙","#ff9500"],["黃","#ffd60a"],["綠","#34c759"],["藍","#0a84ff"],["靛","#5e5ce6"],["紫","#bf5af2"]];
+const RGB=COLORS.map(c=>[1,3,5].map(i=>parseInt(c[1].substr(i,2),16)));
+const SH={
+ circle:{n:"圓形",d:"M50 8a42 42 0 1 1 0 84a42 42 0 1 1 0-84z",x:""},
+ heart:{n:"愛心",d:"M50 90C10 60 4 38 4 28C4 14 16 6 28 6C38 6 46 12 50 20C54 12 62 6 72 6C84 6 96 14 96 28C96 38 90 60 50 90Z",x:""},
+ car:{n:"車子",d:"M6 62L6 52Q6 46 14 44L26 42L36 26Q38 24 42 24L64 24Q68 24 70 26L80 42L90 46Q96 48 96 56L96 66L6 66ZM16 66a10 10 0 1 1 20 0a10 10 0 1 1-20 0ZM66 66a10 10 0 1 1 20 0a10 10 0 1 1-20 0Z",
+  x:"M30 42L38 29L48 29L48 42ZM54 29L64 29L72 42L54 42Z"}
+};
+const BN=["柔光流動筆","蠟筆","噴霧筆"],SZ=[[.06,28,"小",4],[.10,44,"中",7],[.16,70,"大",11]];
+let brushType=0,sizeIdx=1,shape="heart",sel=new Set([0,1,2,3,4,5,6]),pg=0;
+// ---------- 畫面內容
+$("shapes").innerHTML=Object.keys(SH).map(k=>{const s=SH[k];
+ return `<div class="dw tile" data-act="shape:${k}"><svg viewBox="0 0 100 100"><path d="${s.d}" fill="#fff" stroke="#111" stroke-width="3" stroke-linejoin="round"/>${s.x?`<path d="${s.x}" fill="none" stroke="#111" stroke-width="2.5"/>`:""}</svg>${s.n}</div>`}).join("");
+
+function renderGrid(){
+ const idx=pg===0?[0,1,2,3]:[4,5,6];
+ $("grid").innerHTML=idx.map(i=>`<div class="dw col ${sel.has(i)?"":"off"}" data-act="col:${i}" style="background:${COLORS[i][1]}">${COLORS[i][0]}<span class="ck">${sel.has(i)?"✔":""}</span></div>`).join("")
+  +(pg===1?`<div class="dw all" data-act="all">🌈 全選</div>`:"");
+ $("pg").textContent="換頁 ⇄ （"+(pg+1)+"/2）";
+ $("sw").innerHTML="已選："+COLORS.map((c,i)=>sel.has(i)?`<i style="background:${c[1]}"></i>`:"").join("");
+}
+function brushPreview(i){
+ if(i===0)return `<svg viewBox="0 0 100 40"><defs><filter id="bl"><feGaussianBlur stdDeviation="2.5"/></filter></defs><path d="M8 28Q30 2 50 20T92 12" fill="none" stroke="#ff3b30" stroke-width="10" stroke-linecap="round" filter="url(#bl)"/></svg>`;
+ if(i===1)return `<svg viewBox="0 0 100 40"><path d="M8 28Q30 2 50 20T92 12" fill="none" stroke="#0a84ff" stroke-width="10" stroke-linecap="round"/></svg>`;
+ let dots="";
+ for(let n=0;n<60;n++){const t=n/59,x=8+t*84,y=20+Math.sin(t*6)*10+((n*37)%13-6)*1.4;dots+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="1.6" fill="#34c759"/>`}
+ return `<svg viewBox="0 0 100 40">${dots}</svg>`;
+}
+$("brushes").innerHTML=BN.map((n,i)=>`<div class="dw bt" data-act="brush:${i}">${brushPreview(i)}${n}</div>`).join("");
+$("sizes").innerHTML=SZ.map((z,i)=>`<div class="dw bt" data-act="size:${i}"><i class="dot" style="width:${z[3]}vmin;height:${z[3]}vmin"></i>${z[2]}</div>`).join("");
+function renderBrush(){
+ document.querySelectorAll("#brushes .dw").forEach((e,i)=>e.classList.toggle("active",i===brushType));
+ document.querySelectorAll("#sizes .dw").forEach((e,i)=>e.classList.toggle("active",i===sizeIdx));
+}
+renderBrush();
+function show(id){
+ document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("on",s.id===id));
+ if(id==="s2")renderGrid();
+ if(id==="s5")renderBrush();
+ if(id==="s3")requestAnimationFrame(fit);
+}
+
+// ---------- 動作
+function act(a){
+ const p=a.split(":"),k=p[0];let v=p[1];
+ if(k==="shape"){if(v!==shape){shape=v;clearPaint()}show("s3")}
+ else if(k==="col"){v=+v;if(sel.has(v)){if(sel.size>1)sel.delete(v)}else sel.add(v);buildCols();renderGrid()}
+ else if(k==="all"){sel=new Set([0,1,2,3,4,5,6]);buildCols();renderGrid()}
+ else if(k==="page"){pg=1-pg;renderGrid()}
+ else if(k==="back")show("s3");
+ else if(k==="to1")show("s1");
+ else if(k==="to2"){pg=0;show("s2")}
+ else if(k==="to5")show("s5");
+ else if(k==="brush"){brushType=+v;renderBrush()}
+ else if(k==="size"){sizeIdx=+v;renderBrush()}
+ else if(k==="clear")clearPaint();
+}
+// 點擊（滑鼠、觸控或 EyePlayer 的點擊動作）
+document.addEventListener("click",e=>{
+ const d=e.target.closest&&e.target.closest(".dw");if(d)act(d.dataset.act);
+});
+
+// 游標位置（EyePlayer 會移動滑鼠游標）
+let mx=innerWidth/2,my=innerHeight/2,gx=mx,gy=my,seen=false;
+addEventListener("pointermove",e=>{mx=e.clientX;my=e.clientY;seen=true});
+
+// ---------- 著色
+const cv=$("cv"),ctx=cv.getContext("2d"),pc=document.createElement("canvas"),pctx=pc.getContext("2d");
+let cols=[],ph=0,bx=null,by=0,px=0,py=0;
+function buildCols(){cols=[...sel].sort().map(i=>RGB[i])}
+buildCols();
+function fit(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;if(cv.width!==w||cv.height!==h){cv.width=pc.width=w;cv.height=pc.height=h}}
+function clearPaint(){pctx.clearRect(0,0,pc.width,pc.height);bx=null}
+addEventListener("resize",fit);
+function mixColor(){
+ const n=cols.length;if(n===1)return "rgb("+cols[0]+")";
+ const k=((ph%n)+n)%n,i=Math.floor(k),f=k-i,a=cols[i],b=cols[(i+1)%n];
+ return "rgb("+a.map((v,j)=>Math.round(v+(b[j]-v)*f))+")";
+}
+function render(){
+ const w=cv.width,h=cv.height;if(!w)return;
+ const S=Math.min(w,h)*0.92,k=S/100,ox=(w-S)/2,oy=(h-S)/2,P=new Path2D(SH[shape].d),X=SH[shape].x?new Path2D(SH[shape].x):null;
+ ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,w,h);
+ ctx.save();ctx.setTransform(k,0,0,k,ox,oy);ctx.fillStyle="#fff";ctx.fill(P);ctx.clip(P);
+ ctx.setTransform(1,0,0,1,0,0);ctx.drawImage(pc,0,0);ctx.restore();
+ ctx.setTransform(k,0,0,k,ox,oy);ctx.lineWidth=2.6;ctx.lineJoin="round";ctx.strokeStyle="#111";ctx.stroke(P);if(X)ctx.stroke(X);
+ ctx.setTransform(1,0,0,1,0,0);
+}
+function brush(dt){
+ if(!seen||!cv.width)return;
+ const r=cv.getBoundingClientRect(),x=gx-r.left,y=gy-r.top;
+ if(x<0||y<0||x>r.width||y>r.height){bx=null;return}
+ if(bx===null){bx=px=x;by=py=y}
+ bx+=(x-bx)*0.18;by+=(y-by)*0.18;
+ ph+=dt*0.0004*cols.length;
+ const c=mixColor(),lw=Math.max(SZ[sizeIdx][1],Math.min(cv.width,cv.height)*SZ[sizeIdx][0]);
+ pctx.save();pctx.strokeStyle=pctx.fillStyle=c;pctx.lineCap="round";pctx.lineWidth=lw;
+ if(brushType===2){
+  pctx.globalAlpha=.9;
+  for(let i=0;i<16;i++){const t=Math.random(),a=Math.random()*6.283,rr=Math.sqrt(Math.random())*lw*.8,
+   cx=px+(bx-px)*t+Math.cos(a)*rr,cy=py+(by-py)*t+Math.sin(a)*rr;
+   pctx.beginPath();pctx.arc(cx,cy,lw/16+Math.random()*lw/16,0,7);pctx.fill()}
+ }else{
+  if(brushType===0){pctx.globalAlpha=.85;pctx.shadowColor=c;pctx.shadowBlur=22}
+  pctx.beginPath();pctx.moveTo(px,py);pctx.lineTo(bx,by);pctx.stroke();
+  pctx.beginPath();pctx.arc(bx,by,lw/2,0,7);pctx.fill();
+ }
+ pctx.restore();
+ px=bx;py=by;
+}
+
+// ---------- 主迴圈：游標在著色區內就上色
+let last=performance.now();
+function loop(t){
+ try{
+  const dt=Math.max(0,Math.min(t-last,100));last=t;
+  gx+=(mx-gx)*0.25;gy+=(my-gy)*0.25;
+  if(currentScreen()==="s3"){brush(dt);render()}
+ }catch(err){const b=$("err");b.style.display="block";b.textContent="程式錯誤："+err.message}
+ requestAnimationFrame(loop);
+}
+function currentScreen(){return $("s3").classList.contains("on")?"s3":""}
+fit();
+requestAnimationFrame(()=>{fit();requestAnimationFrame(loop)});
+</script>
+</body>
+</html>
